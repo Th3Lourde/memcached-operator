@@ -1,0 +1,47 @@
+apiVersion: cache.example.com/v1alpha1
+kind: Redis
+metadata:
+  labels:
+    app.kubernetes.io/name: memcached-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: redis-self-heal
+spec:
+  size: 2
+  containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  labels:
+    app: redis-service
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: NodePort
+  selector:
+    app: redis
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: redis-volume
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-volume-claim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
