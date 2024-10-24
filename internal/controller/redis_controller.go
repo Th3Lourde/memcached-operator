@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,6 +35,22 @@ import (
 
 	cachev1alpha1 "github.com/example/memcached-operator/api/v1alpha1"
 )
+
+const (
+	charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+"
+	length  = 16
+)
+
+func GenerateSecurePassword() []byte {
+
+	password := make([]byte, length)
+	charsetLength := big.NewInt(int64(len(charset)))
+	for i := range password {
+		index, _ := rand.Int(rand.Reader, charsetLength)
+		password[i] = charset[index.Int64()]
+	}
+	return password
+}
 
 // RedisReconciler reconciles a Redis object
 type RedisReconciler struct {
@@ -133,6 +151,7 @@ func genRedisDeployment(name, namespace string, replicas int32) *appsv1.Deployme
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=services,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -161,6 +180,50 @@ func (r *RedisReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
 		return nextLoopTime, client.IgnoreNotFound(err)
+	}
+
+	if redis.Spec.Password == nil {
+
+		log.Info("starting to create secret")
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-secret", "redis"),
+				Namespace: "memcached-operator-system",
+			},
+			Type: corev1.SecretTypeBasicAuth,
+			Data: map[string][]byte{
+				corev1.BasicAuthUsernameKey: []byte("admin"),
+				corev1.BasicAuthPasswordKey: GenerateSecurePassword(),
+			},
+		}
+
+		log.Info("applying to cluster")
+
+		if err := r.Create(ctx, secret); err != nil {
+			log.Error(err, "Failed to create secret")
+		} else {
+			optional := false
+
+			log.Info("updating cluster spec")
+
+			redis.Spec.Password = &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: secret.Name,
+				},
+				Optional: &optional,
+			}
+			log.Info("applying update of redis")
+
+			err = r.Update(ctx, &redis)
+
+			log.Info("finished updating")
+
+			if err != nil {
+				log.Error(err, "Failed to update secret")
+			}
+		}
+
 	}
 
 	// Just create the service for now - permissions issue, fix later

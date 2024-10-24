@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -33,6 +34,9 @@ type RedisSpec struct {
 
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	ContainerPort int32 `json:"containerPort,omitempty"`
+
+	// K8s Secret of type kubernetes.io/basic-auth
+	Password *v1.SecretEnvSource `json:"password,omitempty"`
 }
 
 // RedisStatus defines the observed state of Redis
