@@ -1,26 +1,8 @@
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -35,22 +17,6 @@ import (
 
 	cachev1alpha1 "github.com/example/memcached-operator/api/v1alpha1"
 )
-
-const (
-	charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+"
-	length  = 16
-)
-
-func GenerateSecurePassword() []byte {
-
-	password := make([]byte, length)
-	charsetLength := big.NewInt(int64(len(charset)))
-	for i := range password {
-		index, _ := rand.Int(rand.Reader, charsetLength)
-		password[i] = charset[index.Int64()]
-	}
-	return password
-}
 
 // RedisReconciler reconciles a Redis object
 type RedisReconciler struct {
@@ -183,22 +149,9 @@ func (r *RedisReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	if redis.Spec.Password == nil {
+		log.Info("Cluster %s does not have a password, generating one", redis.Name)
 
-		log.Info("starting to create secret")
-
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("%s-secret", "redis"),
-				Namespace: "memcached-operator-system",
-			},
-			Type: corev1.SecretTypeBasicAuth,
-			Data: map[string][]byte{
-				corev1.BasicAuthUsernameKey: []byte("admin"),
-				corev1.BasicAuthPasswordKey: GenerateSecurePassword(),
-			},
-		}
-
-		log.Info("applying to cluster")
+		secret := createPasswordSecret(req.Name, req.Namespace)
 
 		if err := r.Create(ctx, secret); err != nil {
 			log.Error(err, "Failed to create secret")
@@ -207,6 +160,7 @@ func (r *RedisReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 			log.Info("updating cluster spec")
 
+			// Update the CRD definition
 			redis.Spec.Password = &corev1.SecretEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{
 					Name: secret.Name,
@@ -222,8 +176,9 @@ func (r *RedisReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			if err != nil {
 				log.Error(err, "Failed to update secret")
 			}
+			return ctrl.Result{}, err
 		}
-
+		// return ctrl.Result{}, err
 	}
 
 	// Just create the service for now - permissions issue, fix later
@@ -235,7 +190,7 @@ func (r *RedisReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 	return nextLoopTime, err
 	// }
 
-	log.Info("Checking if deployment exists")
+	// log.Info("Checking if deployment exists")
 
 	// TODO - gen deployment based upon the .yaml file in the api server
 	dep := genRedisDeployment(redis.Name, redis.Namespace, int32(1))

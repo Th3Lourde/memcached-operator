@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-svc
+  labels:
+    app: valkey
+spec:
+  ports:
+    - port: 6379
+      name: valkey-port
+  clusterIP: None
+  selector:
+    app: valkey
+---
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: e-valkey-creds
+stringData:
+  redis-password: "valkey-cool"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: valkey-deployment
+spec:
+  serviceName: "valkey-svc"
+  replicas: 6
+  selector:
+    matchLabels:
+      app: valkey
+  template:
+    metadata:
+      labels:
+        app: valkey
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey
+          ports:
+            - containerPort: 6379
+              name: valkey-port
+          command:
+            - valkey-server
+            - "--cluster-enabled"
+            - "yes"
+            - "--cluster-config-file"
+            - "/data/nodes.conf"
+            - "--appendonly"
+            - "yes"
+            - "--cluster-announce-ip"
+            - "$(POD_NAME).valkey-svc"
+            - "--tls-cert-file"
+            - "/usr/local/etc/valkey/server.crt"
+            - "--tls-key-file"
+            - "/usr/local/etc/valkey/server.key"
+            - "--tls-port"
+            - "6379"
+            - "--port"
+            - "0"
+            - "--tls-auth-clients"
+            - "no"
+            - "--requirepass"
+            - "$(VALKEY-PASSWORD)"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: VALKEY-PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: e-valkey-creds
+                  key: redis-password
+          volumeMounts:
+            - name: valkey-cert
+              mountPath: /usr/local/etc/valkey
+      volumes:
+        - name: valkey-cert
+          secret:
+            secretName: valkey-server
